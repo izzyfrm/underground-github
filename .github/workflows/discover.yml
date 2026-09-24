@@ -15,6 +15,11 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
+
+concurrency:
+  group: repository-discovery
+  cancel-in-progress: false
 
 jobs:
   discover:
@@ -22,28 +27,47 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
+
+      - name: Run discovery tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Check browser JavaScript
+        run: node --check app.js
 
       - name: Discover repositories
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python scripts/discover.py
 
-      - name: Commit updated directory
+      - name: Open or update review pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if git diff --quiet -- data/developers.json; then
             echo "No repository changes found."
             exit 0
           fi
 
+          BRANCH="automation/discovery"
           git config user.name "underground-github[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
+          git checkout -B "$BRANCH"
           git add data/developers.json
-          git commit -m "update underground repos"
-          git push
+          git commit -m "Propose updated underground repos"
+          git push --force origin "HEAD:refs/heads/$BRANCH"
+
+          if [ "$(gh pr list --head "$BRANCH" --state open --json number --jq length)" -gt 0 ]; then
+            echo "Updated the existing discovery pull request."
+          else
+            gh pr create \
+              --base main \
+              --head "$BRANCH" \
+              --title "Review newly discovered repositories" \
+              --body "Automated discovery update. Review category relevance and repository safety before merging."
+          fi

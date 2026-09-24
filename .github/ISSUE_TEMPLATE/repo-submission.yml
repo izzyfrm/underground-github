@@ -1,0 +1,56 @@
+name: Submit a repository
+description: Suggest a small, active GitHub repository for the directory.
+title: "[Submission]: "
+body:
+  - type: input
+    id: repository
+    attributes:
+      label: Repository URL
+      description: Link to the public GitHub repository.
+      placeholder: https://github.com/owner/repository
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - APIs
+        - Discord
+        - Games
+        - Python
+        - Tools
+        - VR
+        - Web
+    validations:
+      required: true
+
+  - type: textarea
+    id: reason
+    attributes:
+      label: Why should it be included?
+      description: Explain what the project does and why it is interesting.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: relationship
+    attributes:
+      label: Your relationship to the project
+      options:
+        - I maintain or contribute to it
+        - I use or follow it
+        - I have no relationship to it
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety confirmation
+      options:
+        - label: I have not knowingly submitted malware, credential theft, pirated material, or access-bypass tooling.
+          required: true
+        - label: The repository is public and had 25 stars or fewer when submitted.
+          required: true

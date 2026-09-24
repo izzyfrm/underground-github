@@ -12,7 +12,7 @@ let repos = [];
 let currentCategory = "All";
 
 function escapeHTML(value = "") {
-  return value
+  return String(value ?? "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
@@ -20,7 +20,27 @@ function escapeHTML(value = "") {
     .replaceAll("'", "&#039;");
 }
 
+function safeGitHubURL(value, allowedHosts) {
+  try {
+    const url = new URL(String(value));
+
+    if (url.protocol !== "https:" || !allowedHosts.includes(url.hostname)) {
+      return "https://github.com/";
+    }
+
+    return url.href;
+  } catch {
+    return "https://github.com/";
+  }
+}
+
 function repoCard(repo) {
+  const avatarURL = safeGitHubURL(
+    repo.avatar,
+    ["avatars.githubusercontent.com"]
+  );
+  const profileURL = safeGitHubURL(repo.profile_url, ["github.com"]);
+  const repositoryURL = safeGitHubURL(repo.repo_url, ["github.com"]);
   const topics = (repo.topics || [])
     .slice(0, 4)
     .map(topic => `<span class="tag">${escapeHTML(topic)}</span>`)
@@ -32,7 +52,7 @@ function repoCard(repo) {
         <div class="developer">
           <img
             class="avatar"
-            src="${escapeHTML(repo.avatar)}"
+            src="${escapeHTML(avatarURL)}"
             alt="${escapeHTML(repo.developer)} avatar"
             loading="lazy"
           >
@@ -63,17 +83,17 @@ function repoCard(repo) {
 
         <div class="repo-links">
           <a
-            href="${escapeHTML(repo.profile_url)}"
+            href="${escapeHTML(profileURL)}"
             target="_blank"
-            rel="noreferrer"
+            rel="noopener noreferrer"
           >
             Profile
           </a>
 
           <a
-            href="${escapeHTML(repo.repo_url)}"
+            href="${escapeHTML(repositoryURL)}"
             target="_blank"
-            rel="noreferrer"
+            rel="noopener noreferrer"
           >
             Repository ↗
           </a>
