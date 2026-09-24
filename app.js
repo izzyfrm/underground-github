@@ -3,6 +3,7 @@ const searchInput = document.querySelector("#searchInput");
 const categoryFilters = document.querySelector("#categoryFilters");
 const sortSelect = document.querySelector("#sortSelect");
 const emptyState = document.querySelector("#emptyState");
+const resultsStatus = document.querySelector("#resultsStatus");
 
 const repoCount = document.querySelector("#repoCount");
 const developerCount = document.querySelector("#developerCount");
@@ -10,6 +11,20 @@ const categoryCount = document.querySelector("#categoryCount");
 
 let repos = [];
 let currentCategory = "All";
+
+function textValue(value, fallback = "") {
+  return typeof value === "string" && value.trim()
+    ? value.trim()
+    : fallback;
+}
+
+function starCount(value) {
+  const stars = Number(value);
+
+  return Number.isFinite(stars) && stars >= 0
+    ? Math.floor(stars)
+    : 0;
+}
 
 function escapeHTML(value = "") {
   return String(value ?? "")
@@ -20,29 +35,68 @@ function escapeHTML(value = "") {
     .replaceAll("'", "&#039;");
 }
 
-function safeGitHubURL(value, allowedHosts) {
+function safeGitHubURL(value, allowedHosts, fallback = "https://github.com/") {
   try {
     const url = new URL(String(value));
 
-    if (url.protocol !== "https:" || !allowedHosts.includes(url.hostname)) {
-      return "https://github.com/";
+    if (
+      url.protocol !== "https:" ||
+      !allowedHosts.includes(url.hostname) ||
+      url.username ||
+      url.password ||
+      (url.port && url.port !== "443")
+    ) {
+      return fallback;
     }
 
     return url.href;
   } catch {
-    return "https://github.com/";
+    return fallback;
   }
 }
 
+function normalizeRepo(repo) {
+  if (!repo || typeof repo !== "object" || Array.isArray(repo)) {
+    return null;
+  }
+
+  const username = textValue(repo.username);
+  const name = textValue(repo.name);
+  const category = textValue(repo.category);
+
+  if (!username || !name || !category) {
+    return null;
+  }
+
+  return {
+    developer: textValue(repo.developer, username),
+    username,
+    avatar: textValue(repo.avatar),
+    name,
+    description: textValue(repo.description, "No description provided."),
+    category,
+    language: textValue(repo.language, "Unknown"),
+    stars: starCount(repo.stars),
+    topics: Array.isArray(repo.topics)
+      ? repo.topics.filter(topic => typeof topic === "string").slice(0, 4)
+      : [],
+    featured: repo.featured === true,
+    profile_url: textValue(repo.profile_url),
+    repo_url: textValue(repo.repo_url)
+  };
+}
+
 function repoCard(repo) {
+  const avatarFallback =
+    `https://github.com/identicons/${encodeURIComponent(repo.username)}.png`;
   const avatarURL = safeGitHubURL(
     repo.avatar,
-    ["avatars.githubusercontent.com"]
+    ["avatars.githubusercontent.com"],
+    avatarFallback
   );
   const profileURL = safeGitHubURL(repo.profile_url, ["github.com"]);
   const repositoryURL = safeGitHubURL(repo.repo_url, ["github.com"]);
-  const topics = (repo.topics || [])
-    .slice(0, 4)
+  const topics = repo.topics
     .map(topic => `<span class="tag">${escapeHTML(topic)}</span>`)
     .join("");
 
@@ -63,13 +117,13 @@ function repoCard(repo) {
           </div>
         </div>
 
-        <span class="star-count">★ ${Number(repo.stars || 0)}</span>
+        <span class="star-count" aria-label="${repo.stars} ${repo.stars === 1 ? "star" : "stars"}">★ ${repo.stars}</span>
       </div>
 
       <h3 class="repo-name">${escapeHTML(repo.name)}</h3>
 
       <p class="repo-description">
-        ${escapeHTML(repo.description || "No description provided.")}
+        ${escapeHTML(repo.description)}
       </p>
 
       <div class="tags">
@@ -78,7 +132,7 @@ function repoCard(repo) {
 
       <div class="repo-footer">
         <span class="repo-meta">
-          ${escapeHTML(repo.language || "Unknown")} · underground pick
+          ${escapeHTML(repo.language)} · underground pick
         </span>
 
         <div class="repo-links">
@@ -108,6 +162,12 @@ function renderCategories() {
     "All",
     ...new Set(repos.map(repo => repo.category).filter(Boolean))
   ];
+
+  categories.splice(
+    1,
+    categories.length - 1,
+    ...categories.slice(1).sort((a, b) => a.localeCompare(b))
+  );
 
   categoryFilters.innerHTML = categories
     .map(category => `
@@ -148,11 +208,11 @@ function getFilteredRepos() {
 
   switch (sortSelect.value) {
     case "stars-low":
-      filtered.sort((a, b) => a.stars - b.stars);
+      filtered.sort((a, b) => starCount(a.stars) - starCount(b.stars));
       break;
 
     case "stars-high":
-      filtered.sort((a, b) => b.stars - a.stars);
+      filtered.sort((a, b) => starCount(b.stars) - starCount(a.stars));
       break;
 
     case "name":
@@ -178,7 +238,12 @@ function renderRepos() {
   const filtered = getFilteredRepos();
 
   repoGrid.innerHTML = filtered.map(repoCard).join("");
+  repoGrid.setAttribute("aria-busy", "false");
   emptyState.hidden = filtered.length !== 0;
+
+  const noun = filtered.length === 1 ? "project" : "projects";
+  resultsStatus.textContent =
+    `Showing ${filtered.length} of ${repos.length} ${noun}`;
 }
 
 function updateStats() {
@@ -215,13 +280,31 @@ async function loadRepos() {
       throw new Error(`HTTP ${response.status}`);
     }
 
-    repos = await response.json();
+    const payload = await response.json();
+
+    if (!Array.isArray(payload)) {
+      throw new TypeError("Repository data must be an array");
+    }
+
+    repos = payload.map(normalizeRepo).filter(Boolean);
+
+    if (repos.length === 0) {
+      throw new Error("Repository data is empty");
+    }
 
     updateStats();
     renderCategories();
     renderRepos();
   } catch (error) {
     console.error("Could not load repository data:", error);
+
+    repos = [];
+    repoGrid.replaceChildren();
+    repoGrid.setAttribute("aria-busy", "false");
+    categoryFilters.replaceChildren();
+    updateStats();
+    categoryCount.textContent = "0";
+    resultsStatus.textContent = "Project data is unavailable.";
 
     emptyState.hidden = false;
 

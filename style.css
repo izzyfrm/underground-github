@@ -98,6 +98,13 @@ select {
   color: var(--text);
 }
 
+a:focus-visible,
+button:focus-visible,
+select:focus-visible {
+  outline: 2px solid #d0d7de;
+  outline-offset: 3px;
+}
+
 .button {
   display: inline-flex;
   align-items: center;
@@ -181,6 +188,7 @@ h1 {
 .search-wrap:focus-within {
   border-color: #555c67;
   background: var(--panel-2);
+  box-shadow: 0 0 0 3px rgba(208, 215, 222, 0.12);
 }
 
 .search-wrap svg {
@@ -201,7 +209,7 @@ h1 {
 }
 
 .search-wrap input::placeholder {
-  color: #676d76;
+  color: #7d8590;
 }
 
 .stats {
@@ -259,6 +267,7 @@ h1 {
   outline: none;
   background: var(--panel);
   color: var(--soft);
+  cursor: pointer;
   font-size: 13px;
 }
 
@@ -268,6 +277,13 @@ h1 {
   margin-bottom: 30px;
   overflow-x: auto;
   scrollbar-width: none;
+}
+
+.results-status {
+  margin: -12px 0 20px;
+  color: #7d8590;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
 }
 
 .filters::-webkit-scrollbar {
@@ -305,6 +321,8 @@ h1 {
 
 .repo-card {
   min-width: 0;
+  display: flex;
+  flex-direction: column;
   padding: 22px;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -361,7 +379,7 @@ h1 {
   display: block;
   margin-top: 2px;
   overflow: hidden;
-  color: #696f78;
+  color: #7d8590;
   font-family: "JetBrains Mono", monospace;
   font-size: 11px;
   text-overflow: ellipsis;
@@ -396,6 +414,7 @@ h1 {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  margin-top: auto;
   margin-bottom: 20px;
 }
 
@@ -418,7 +437,7 @@ h1 {
 }
 
 .repo-meta {
-  color: #6f7680;
+  color: #7d8590;
   font-family: "JetBrains Mono", monospace;
   font-size: 10px;
 }
@@ -436,6 +455,10 @@ h1 {
 
 .repo-links a:hover {
   color: var(--text);
+}
+
+.repo-links a:focus-visible {
+  border-radius: 2px;
 }
 
 .empty-state {
@@ -493,13 +516,23 @@ footer {
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  color: #666d76;
+  color: #848b96;
   font-size: 12px;
 }
 
 .footer-inner span:first-child {
   color: #969da6;
   font-weight: 600;
+}
+
+.noscript-message {
+  margin: 0;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  color: var(--soft);
+  background: var(--panel);
+  text-align: center;
+  font-size: 13px;
 }
 
 @media (max-width: 760px) {
@@ -516,7 +549,8 @@ footer {
   }
 
   h1 {
-    font-size: clamp(42px, 15vw, 62px);
+    font-size: clamp(40px, 12vw, 52px);
+    line-height: 1;
   }
 
   .hero-copy {
@@ -563,5 +597,22 @@ footer {
   .repo-footer {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .filter {
+    min-height: 42px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .button,
+  .filter,
+  .repo-card,
+  .search-wrap {
+    transition: none;
   }
 }

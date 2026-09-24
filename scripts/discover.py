@@ -1,3 +1,4 @@
+import argparse
 import json
 import os
 import re
@@ -5,7 +6,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
 
 API = "https://api.github.com"
@@ -16,7 +17,9 @@ MAX_STARS = 25
 PER_CATEGORY = 6
 ACTIVE_DAYS = 180
 SEARCH_PAUSE = 5
-MIN_CATEGORY_SCORE = 4
+SEARCH_RESULTS = 100
+MIN_CATEGORY_SCORE = 5
+MIN_DESCRIPTION_LENGTH = 40
 
 CATEGORIES = {
     "VR": {
@@ -31,7 +34,7 @@ CATEGORIES = {
         ],
     },
     "Discord": {
-        "search": "discord",
+        "searches": ['"discord bot"', "discord.py", "discord.js"],
         "terms": ["discord", "discord bot", "discord.py", "discord.js"],
     },
     "Python": {
@@ -44,12 +47,19 @@ CATEGORIES = {
         "terms": ["web app", "website", "frontend", "web", "react"],
     },
     "Games": {
-        "search": "game",
+        "searches": ["game", "pygame", "godot", '"unity game"'],
         "terms": ["game", "pygame", "godot", "unity", "gamedev"],
     },
     "Tools": {
-        "search": "cli",
-        "terms": ["cli", "tool", "utility", "developer tool", "automation"],
+        "searches": ["cli", '"command line"', '"developer tool"', "utility"],
+        "terms": [
+            "cli",
+            "command line",
+            "tool",
+            "utility",
+            "developer tool",
+            "automation",
+        ],
     },
     "APIs": {
         "searches": ["fastapi", '"rest api"', '"public api"'],
@@ -60,25 +70,36 @@ CATEGORIES = {
 BLOCKED_WORDS = {
     "assignment",
     "homework",
+    "internship",
     "tutorial",
     "practice",
     "learning",
     "course",
+    "commit activity automation",
+    "devlog",
+    "doing the impossible",
     "leetcode",
     "hello-world",
     "boilerplate",
     "template",
+    "portfolio copy",
+    "source is private",
 }
 
 # Repositories matching these terms need human review and must never be added
 # automatically. This deliberately favors visitor safety over recall.
 REVIEW_REQUIRED_TERMS = {
+    "arbitrage opportunities",
+    "books a gym class",
     "credential stealer",
     "claim a free",
     "download and install",
+    "executes trades",
     "exploit kit",
+    "exit ips",
     "free download",
     "free game key",
+    "flash loan",
     "full version",
     "keylogger",
     "malware",
@@ -91,6 +112,10 @@ REVIEW_REQUIRED_TERMS = {
     "ransomware",
     "remote access trojan",
     "token grabber",
+    "shared for testing",
+    "bug-hunting automation",
+    "unofficial early build",
+    "windows prototype",
 }
 
 
@@ -98,6 +123,26 @@ def contains_term(value, term):
     """Match a word or phrase without treating substrings as matches."""
     pattern = rf"(?<![\w]){re.escape(term.casefold())}(?![\w])"
     return re.search(pattern, value.casefold()) is not None
+
+
+def is_allowed_https_url(value, allowed_hosts):
+    """Return whether value is a credential-free HTTPS URL on an exact host."""
+    if not isinstance(value, str):
+        return False
+
+    try:
+        parsed = urlparse(value)
+        port = parsed.port
+    except ValueError:
+        return False
+
+    return (
+        parsed.scheme == "https"
+        and parsed.hostname in allowed_hosts
+        and not parsed.username
+        and not parsed.password
+        and port in {None, 443}
+    )
 
 
 def request_json(url, retries=3):
@@ -174,7 +219,7 @@ def github_search(category, search_term, cutoff):
         f"?q={quote(query)}"
         "&sort=updated"
         "&order=desc"
-        "&per_page=30"
+        f"&per_page={SEARCH_RESULTS}"
     )
 
     data = request_json(url) or {}
@@ -203,13 +248,13 @@ def looks_low_quality(repo):
     if repo.get("stargazers_count", 0) > MAX_STARS:
         return True
 
-    if len(description) < 18:
+    if len(description) < MIN_DESCRIPTION_LENGTH:
         return True
 
     if repo.get("size", 0) < 8:
         return True
 
-    if any(contains_term(name, word) for word in BLOCKED_WORDS):
+    if any(contains_term(searchable, word) for word in BLOCKED_WORDS):
         return True
 
     if any(contains_term(searchable, term) for term in REVIEW_REQUIRED_TERMS):
@@ -388,7 +433,7 @@ def validate_results(repos):
             "Keeping the current data."
         )
 
-    repo_urls = [repo["repo_url"] for repo in repos]
+    repo_urls = [repo["repo_url"].rstrip("/").casefold() for repo in repos]
 
     if len(repo_urls) != len(set(repo_urls)):
         raise RuntimeError(
@@ -397,16 +442,32 @@ def validate_results(repos):
         )
 
     for repo in repos:
-        if not repo["repo_url"].startswith("https://github.com/"):
+        if not is_allowed_https_url(repo["repo_url"], {"github.com"}):
             raise RuntimeError("Discovery produced an invalid repository URL.")
 
-        if not repo["profile_url"].startswith("https://github.com/"):
+        if not is_allowed_https_url(repo["profile_url"], {"github.com"}):
             raise RuntimeError("Discovery produced an invalid profile URL.")
 
-        if not repo["avatar"].startswith(
-            "https://avatars.githubusercontent.com/"
+        if not is_allowed_https_url(
+            repo["avatar"],
+            {"avatars.githubusercontent.com"},
         ):
             raise RuntimeError("Discovery produced an invalid avatar URL.")
+
+        searchable = " ".join(
+            [repo["name"], repo["description"], *repo.get("topics", [])]
+        )
+
+        if any(contains_term(searchable, word) for word in BLOCKED_WORDS):
+            raise RuntimeError("Discovery produced a blocked repository.")
+
+        if any(
+            contains_term(searchable, term)
+            for term in REVIEW_REQUIRED_TERMS
+        ):
+            raise RuntimeError(
+                "Discovery produced a repository that requires review."
+            )
 
 
 def write_results(repos, output=OUTPUT):
@@ -418,6 +479,12 @@ def write_results(repos, output=OUTPUT):
         encoding="utf-8",
     )
     temporary.replace(output)
+
+
+def validate_output(output=OUTPUT):
+    repos = json.loads(output.read_text(encoding="utf-8"))
+    validate_results(repos)
+    print(f"Validated {len(repos)} repos in {output}")
 
 
 def main():
@@ -470,4 +537,17 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(
+        description="Discover and validate Underground GitHub repositories."
+    )
+    parser.add_argument(
+        "--validate-only",
+        action="store_true",
+        help="validate the current data file without calling the GitHub API",
+    )
+    arguments = parser.parse_args()
+
+    if arguments.validate_only:
+        validate_output()
+    else:
+        main()

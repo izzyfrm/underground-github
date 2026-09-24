@@ -43,6 +43,26 @@ class DiscoveryTests(unittest.TestCase):
         self.assertTrue(discover.contains_term("REST API", "api"))
         self.assertFalse(discover.contains_term("capital", "api"))
 
+    def test_url_validation_requires_an_exact_host(self):
+        self.assertTrue(
+            discover.is_allowed_https_url(
+                "https://github.com/example/project",
+                {"github.com"},
+            )
+        )
+        self.assertFalse(
+            discover.is_allowed_https_url(
+                "https://github.com.evil.example/project",
+                {"github.com"},
+            )
+        )
+        self.assertFalse(
+            discover.is_allowed_https_url(
+                "https://user:password@github.com/example/project",
+                {"github.com"},
+            )
+        )
+
     def test_risky_repository_requires_review(self):
         repo = make_repo(description="A private server and API emulator project")
         self.assertTrue(discover.looks_low_quality(repo))
@@ -51,6 +71,38 @@ class DiscoveryTests(unittest.TestCase):
             description="Get the full version with a free download for Windows."
         )
         self.assertTrue(discover.looks_low_quality(download_bait))
+
+        tutorial = make_repo(
+            description="A hands-on learning course for Python beginners."
+        )
+        self.assertTrue(discover.looks_low_quality(tutorial))
+
+        internship_work = make_repo(
+            description="Projects and tasks completed during an internship."
+        )
+        self.assertTrue(discover.looks_low_quality(internship_work))
+
+        prototype_bait = make_repo(
+            description="Early Windows prototype shared for testing and feedback."
+        )
+        self.assertTrue(discover.looks_low_quality(prototype_bait))
+
+        copied_project = make_repo(
+            description="Public portfolio copy of another developer's project."
+        )
+        self.assertTrue(discover.looks_low_quality(copied_project))
+
+        risky_finance_tool = make_repo(
+            description="Flash loan automation with multi-chain profit optimization."
+        )
+        self.assertTrue(discover.looks_low_quality(risky_finance_tool))
+
+        trading_bot = make_repo(
+            description=(
+                "Finds arbitrage opportunities and executes trades automatically."
+            )
+        )
+        self.assertTrue(discover.looks_low_quality(trading_bot))
 
     def test_irrelevant_result_is_not_selected(self):
         repo = make_repo(
@@ -68,6 +120,21 @@ class DiscoveryTests(unittest.TestCase):
         )
         terms = ["vr", "virtual reality", "meta quest", "openxr"]
         self.assertGreaterEqual(
+            discover.relevance_score(repo, terms),
+            discover.MIN_CATEGORY_SCORE,
+        )
+
+    def test_incidental_category_mention_is_not_enough(self):
+        repo = make_repo(
+            name="yield-watch",
+            description=(
+                "Tracks lending rates and sends optional Discord alerts."
+            ),
+            topics=["finance"],
+        )
+        terms = ["discord", "discord bot", "discord.py", "discord.js"]
+
+        self.assertLess(
             discover.relevance_score(repo, terms),
             discover.MIN_CATEGORY_SCORE,
         )
@@ -97,6 +164,34 @@ class DiscoveryTests(unittest.TestCase):
             repos.append(repo)
 
         discover.validate_results(repos)
+
+    def test_validation_rejects_case_insensitive_duplicates(self):
+        repos = []
+
+        for index, category in enumerate(discover.CATEGORIES):
+            repo = normalized_repo(category)
+            repo["repo_url"] = f"https://github.com/example/repo-{index}"
+            repos.append(repo)
+
+        repos[1]["repo_url"] = repos[0]["repo_url"].upper() + "/"
+
+        with self.assertRaisesRegex(RuntimeError, "duplicate"):
+            discover.validate_results(repos)
+
+    def test_validation_rejects_review_required_result(self):
+        repos = []
+
+        for index, category in enumerate(discover.CATEGORIES):
+            repo = normalized_repo(category)
+            repo["repo_url"] = f"https://github.com/example/repo-{index}"
+            repos.append(repo)
+
+        repos[0]["description"] = (
+            "Early Windows prototype shared for testing and feedback."
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "requires review"):
+            discover.validate_results(repos)
 
     def test_write_results_is_valid_json(self):
         repos = [normalized_repo("Tools")]

@@ -24,6 +24,7 @@ The project uses only browser JavaScript and Python's standard library.
 
 ```bash
 python -m unittest discover -s tests -v
+python scripts/discover.py --validate-only
 node --check app.js
 ```
 
